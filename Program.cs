@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Davyd Stalytenko
+// Copyright (C) 2026 Davyd Stalytenko
 // under the GPL-3
 
 
@@ -10,11 +10,8 @@ struct Note {
     private int posX = 0;
     private int posY = 0;
 
-    public string title = "dnumbernumbernumbernumbernumbernumber";
-    public List<string> body = [
-        "body",
-        "body1"
-    ];
+    public string title = "";
+    public List<string> body = [];
 
     public Note() {}
 
@@ -40,7 +37,8 @@ struct Note {
         this.posY--;
 
         var maxLength = this.posY == 0 ? this.title.Length : this.body[this.posY - 1].Length;
-        if (this.posX >= maxLength) this.posX = maxLength - 1; // check for -1 case
+        var newX = maxLength == 0 ? 0 : maxLength - 1;
+        if (this.posX >= maxLength) this.posX = newX;
     }
 
     public void down() {
@@ -48,7 +46,8 @@ struct Note {
             this.posY++;
 
             var maxLength = this.body[this.posY - 1].Length;
-            if (this.posX >= maxLength) this.posX = maxLength - 1;
+            var newX = maxLength == 0 ? 0 : maxLength - 1;
+            if (this.posX >= maxLength) this.posX = newX;
         }
     }
 
@@ -71,8 +70,6 @@ struct Note {
     }
 
     public void enter() {
-        // Console.Write(this.posY.ToString());
-        // Console.ReadLine();
         this.body.Insert(this.posY, "");
         this.down();
     }
@@ -100,26 +97,28 @@ struct Note {
             this.body.RemoveAt(this.posY - 1);
 
             // move cursor
-            this.posY--;
-            this.posX = this.body[this.posY].Length - 1;
+            this.up();
 
             return;
         }
 
+        string line = this.posY == 0 ? this.title : this.body[this.posY - 1];
+
+        if (this.posX == line.Length) line = line.Remove(this.posX - 1);
+
         if (this.posY == 0) {
-            this.title = this.title.Remove(this.posX, 1);
+            this.title = this.title = line;
         } else {
-            this.body[this.posY - 1] = this.body[this.posY - 1].Remove(this.posX, 1); 
+            this.body[this.posY - 1] = line;
         }
 
-        this.posX--;
+        this.left();
     }
 }
 
 
 enum State {
     home,
-    show,
     create,
     edit,
     exit
@@ -134,46 +133,23 @@ class Model {
 
     State state = State.home; // main state
 
-    public Model() {
-        notes.Add(new Note());
-        notes.Add(new Note());
-        notes.Add(new Note());
-        notes.Add(new Note());
-        notes.Add(new Note());
-        notes.Add(new Note());
-        notes.Add(new Note());
-    }
-
-    public void showNote() {
-        if (this.state != State.home) {
-            return;
-        }
-
-        if (this.currentTitleIdx >= this.notes.Count) {
-            return;
-        }
-
-        this.state = State.show;
-        this.currentNote = new Note(notes[currentTitleIdx]);
-    }
+    public Model() {}
 
     public void createNote() {
-        if (this.state != State.home) {
-            return;
+        if (this.state == State.home) {
+            this.state = State.create;
+            this.currentNote = new Note();
         }
-
-        this.state = State.show;
-        this.currentNote = new Note();
     }
 
     /// show note | navigate note
     public void enter() {
         switch (this.state) {
             case State.home: break; // show note
-            case State.show:
-                this.state = State.edit; // show note with exception
-                return;
             case State.edit: // navigate note
+                this.currentNote.enter();
+                return;
+            case State.create: // navigate note
                 this.currentNote.enter();
                 return;
             default: return;
@@ -190,7 +166,6 @@ class Model {
     public void cancel() {
         switch (this.state) {
             case State.edit: break;
-            case State.show: break;
             case State.create: break;
             case State.home:
                 this.state = State.exit;
@@ -205,6 +180,12 @@ class Model {
         if (this.state == State.edit) {
             this.notes[this.currentTitleIdx] = this.currentNote;
 
+            this.state = State.home;
+            return;
+        }
+
+        if (this.state == State.create) {
+            this.notes.Add(this.currentNote);
             this.state = State.home;
         }
     }
@@ -400,12 +381,7 @@ class View {
             case State.home:
                 this.drawCText("-> HOME", 2, 2, 0);
                 this.drawList();
-                this.drawCText("<ESC>: exit; <up/down>: move; <enter>: show; <C-N>: new", 1, this.h - 2, this.w - 2);
-                break;
-            case State.show:
-                this.drawCText("-> SHOW", 2, 2, 0);
-                this.drawCText("<up/down>: navigate; <ESC>: back;", 1, this.h - 2, this.w - 2);
-                this.drawNote();
+                this.drawCText("<ESC>: exit; <up/down>: move; <enter>: edit; <C-N>: new", 1, this.h - 2, this.w - 2);
                 break;
             case State.edit:
                 this.drawCText("-> EDIT", 2, 2, 0);
@@ -569,38 +545,57 @@ class Controller {
         switch (key.Key) {
             case ConsoleKey.UpArrow:
                 this.model.up();
-                break;
+                return;
             case ConsoleKey.DownArrow:
                 this.model.down();
-                break;
+                return;
             case ConsoleKey.Escape:
                 this.model.cancel();
-                break;
+                return;
             case ConsoleKey.Enter:
                 this.model.enter();
-                break;
+                return;
         }
 
-        switch (this.model.getState()) {
-            case State.edit:
-                this.processKeysInEdit(key);
-                break;
+        var state = this.model.getState();
+
+        if (state != State.home)
+        {
+            this.processKeysInNote(key);
+            return;
         }
+        
+        // in home, create note
+        if (state == State.home &&
+        key.Key == ConsoleKey.N &&
+        key.Modifiers == ConsoleModifiers.Control)
+        {
+            this.model.createNote();
+            return;
+        }        
     }
 
-    private void processKeysInEdit(ConsoleKeyInfo key) {
+    private void processKeysInNote(ConsoleKeyInfo key) {
         switch (key.Key) {
-            case ConsoleKey.Backspace:
-                this.model.getNote().pop();
-                return;
             case ConsoleKey.LeftArrow:
                 this.model.getNote().left();
                 return;
             case ConsoleKey.RightArrow:
                 this.model.getNote().right();
                 return;
+            case ConsoleKey.Backspace:
+                this.model.getNote().pop();
+                return;
         }
 
+        // check for save key
+        if (key.Key == ConsoleKey.S && key.Modifiers == ConsoleModifiers.Control)
+        {
+            this.model.save();
+            return;
+        }
+
+        // any symbol
         if (!char.IsControl(key.KeyChar)) {
             this.model.getNote().push(key.KeyChar);
         }
